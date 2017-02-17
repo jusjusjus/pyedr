@@ -39,6 +39,8 @@ class Subject:
             self.set_filename(filename)
         if scorename is not None:
             self.set_scorename(scorename)
+
+        self.normalize = normalize_with_quantiles
      
     def set_filename(self, filename):
         assert os.path.exists(filename), filename
@@ -55,17 +57,17 @@ class Subject:
             self.score = pyedf.Score(self.scorename)
     
     @staticmethod
-    def normalize(x):
+    def normalize_with_quantiles(x):
         x = detrend(x)
         idx = np.argsort(x)
         quant_idx = idx[[int(factor * idx.size) for factor in [0.1, 0.5, 0.9]]]
         quantiles = x[quant_idx]
         return (x-quantiles[1])/(quantiles[2]-quantiles[0])
     
-    #@staticmethod
-    #def normalize(x):
-    #    x = detrend(x)
-    #    return (x-np.mean(x))/np.std(x)
+    @staticmethod
+    def normalize_with_stdev(x):
+        x = detrend(x)
+        return (x-np.mean(x))/np.std(x)
     
     def get_data(self, normalize=False):
         assert self.recording is not None
