@@ -40,7 +40,7 @@ class Subject:
         if scorename is not None:
             self.set_scorename(scorename)
 
-        self.normalize = normalize_with_quantiles
+        self.normalize = self.normalize_with_quantiles
      
     def set_filename(self, filename):
         assert os.path.exists(filename), filename
