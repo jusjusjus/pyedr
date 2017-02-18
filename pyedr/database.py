@@ -29,7 +29,7 @@ include a blood pressure waveform, as noted above."""
 
 
 class Subject:
-    
+
     def __init__(self, ID=None, age=None, filename=None, scorename=None):
         self.ID = ID
         self.age = age
@@ -39,9 +39,7 @@ class Subject:
             self.set_filename(filename)
         if scorename is not None:
             self.set_scorename(scorename)
-
-        self.normalize = self.normalize_with_quantiles
-     
+    
     def set_filename(self, filename):
         assert os.path.exists(filename), filename
         self.filename = filename
@@ -69,9 +67,11 @@ class Subject:
         x = detrend(x)
         return (x-np.mean(x))/np.std(x)
     
-    def get_data(self, normalize=False):
+    def get_data(self, normalize=None):
         assert self.recording is not None
         assert self.score is not None
+        if normalize is not None:
+            normalize = getattr(Subject, normalize)
         sampling_rate = self.recording.get_samplingrate('ECG')
         channels = ['ECG', 'RESP']
         data = []
@@ -79,13 +79,13 @@ class Subject:
             d_s = self.recording.get_data(state_of_interest=state, channels=channels)[1]
             ekg, resp = d_s[0], d_s[1]
             if normalize:
-                ekg  = self.normalize(ekg)
-                resp = self.normalize(resp)
+                ekg  = normalize(ekg)
+                resp = normalize(resp)
             data.append(np.array([ekg, resp]))      
             
         return data # data[state][channel, sample]
  
-    def get_data_batches(self, sequence_len, sequences_per_batch, normalize=True):
+    def get_data_batches(self, sequence_len, sequences_per_batch, normalize=None):
         batch_len = sequence_len * sequences_per_batch
         data_states = self.get_data(normalize=normalize) # data[state][channel, sample]
         
@@ -136,6 +136,8 @@ class Subject:
             targets[i] = np.median(data[1, start:end])
         return feature_sequences, targets # out[state][feat/targ]<[seq_idx, feat_idx]/[seq_idx]>
 
+
+
     
 class Dataset:
 
@@ -158,14 +160,14 @@ class Dataset:
             subject   = Subject(ID=ID, age=age, filename=filename, scorename=scorename)
             self.subjects.append(subject)
 
-    def get_data(self, normalize=False):
+    def get_data(self, normalize=None):
         datas = []
         for subject in self.subjects:
             subject.open()
             datas.extend(subject.get_data(normalize=normalize))
         return datas # data[state][channel, sample]
 
-    def get_data_batches(self, sequence_len, sequences_per_batch, shuffle=False, normalize=True):
+    def get_data_batches(self, sequence_len, sequences_per_batch, shuffle=False, normalize=None):
         feature_batches, target_batches = [], []
         for subject in self.subjects:
             subject.open()
