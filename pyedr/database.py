@@ -29,7 +29,7 @@ include a blood pressure waveform, as noted above."""
 
 
 class Subject:
-    
+
     def __init__(self, ID=None, age=None, filename=None, scorename=None):
         self.ID = ID
         self.age = age
@@ -39,9 +39,7 @@ class Subject:
             self.set_filename(filename)
         if scorename is not None:
             self.set_scorename(scorename)
-
-        self.normalize = self.normalize_with_quantiles
-     
+    
     def set_filename(self, filename):
         assert os.path.exists(filename), filename
         self.filename = filename
@@ -135,6 +133,10 @@ class Subject:
             end   = start + sequence_len
             targets[i] = np.median(data[1, start:end])
         return feature_sequences, targets # out[state][feat/targ]<[seq_idx, feat_idx]/[seq_idx]>
+
+# Set default normalization for class Subject:
+Subject.normalize = Subject.normalize_with_quantiles
+
 
     
 class Dataset:
