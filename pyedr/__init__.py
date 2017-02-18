@@ -1,2 +1,2 @@
 
-from .database import Dataset, all_subject_ids
+from .database import Subject, Dataset, all_subject_ids
