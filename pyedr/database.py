@@ -39,6 +39,13 @@ class Subject:
             self.set_filename(filename)
         if scorename is not None:
             self.set_scorename(scorename)
+
+        self.normalize = {
+                'stdev':     self.normalize_with_stdev,
+                'quantiles': self.normalize_with_quantiles,
+                'detrend':   self.normalize_with_detrend,
+                None :       lambda x: x
+        }
     
     def set_filename(self, filename):
         assert os.path.exists(filename), filename
@@ -55,10 +62,15 @@ class Subject:
             self.score = pyedf.Score(self.scorename)
     
     @staticmethod
+    def normalize_with_detrend(x):
+        return detrend(x)
+
+    quantiles = [0.1, 0.5, 0.9]
+    @staticmethod
     def normalize_with_quantiles(x):
         x = detrend(x)
         idx = np.argsort(x)
-        quant_idx = idx[[int(factor * idx.size) for factor in [0.1, 0.5, 0.9]]]
+        quant_idx = idx[[int(factor * idx.size) for factor in Subject.quantiles]]
         quantiles = x[quant_idx]
         return (x-quantiles[1])/(quantiles[2]-quantiles[0])
     
@@ -70,17 +82,14 @@ class Subject:
     def get_data(self, normalize=None):
         assert self.recording is not None
         assert self.score is not None
-        if normalize is not None:
-            normalize = getattr(Subject, normalize)
         sampling_rate = self.recording.get_samplingrate('ECG')
         channels = ['ECG', 'RESP']
         data = []
         for state in self.score.states:
             d_s = self.recording.get_data(state_of_interest=state, channels=channels)[1]
             ekg, resp = d_s[0], d_s[1]
-            if normalize:
-                ekg  = normalize(ekg)
-                resp = normalize(resp)
+            ekg  = self.normalize[normalize](ekg)
+            resp = self.normalize[normalize](resp)
             data.append(np.array([ekg, resp]))      
             
         return data # data[state][channel, sample]
