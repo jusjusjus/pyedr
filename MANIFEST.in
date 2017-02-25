@@ -1,0 +1,2 @@
+include pyedr/resources/fantasia/list_of_subjects.txt
+include pyedr/resources/fantasia/*csv
