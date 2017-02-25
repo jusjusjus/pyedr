@@ -25,4 +25,5 @@ setuptools.setup(
     keywords     = "edr",
     url          = "https://github.com/jusjusjus/pyedr",
     packages     = ['pyedr'],
+    include_package_data = True,
     classifiers	 = classifiers)
