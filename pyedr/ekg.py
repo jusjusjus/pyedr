@@ -60,9 +60,11 @@ class Ekg:
         r_intervals[0] = r_intervals[1]
         return r_intervals
         
-    def get_all_R_peaks(self):
+    def get_all_R_peaks(self, left=0, right=None):
+        if right is not None and right > 0:
+            right = -right
         self.R_peaks = [
-            bioecg.ecg(signal, sampling_rate=self.sampling_rate, show=False)['rpeaks']
+            left + bioecg.ecg(signal[left:right], sampling_rate=self.sampling_rate, show=False)['rpeaks']
             for signal in self.segments
         ]
         self.R_peak_heights = [
@@ -83,6 +85,7 @@ class Ekg:
             for r_peak in r_peaks:
                 interval = (r_peak-left, r_peak+right)
                 if interval[0]<0 or interval[1]>samples_in_segment-1:
+                    print('A sequence was not determined because of interval length.')
                     continue
                 seg_i = segment[:, slice(*interval)]
                 data_sequences.append(seg_i)
