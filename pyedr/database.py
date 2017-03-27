@@ -47,10 +47,11 @@ class SubjectPrototype:
         x = detrend(x)
         return (x-np.mean(x))/np.std(x)
 
-    normalize = {'stdev':     normalize_with_stdev,
-                 'quantiles': normalize_with_quantiles,
-                 'detrend':   normalize_with_detrend,
-                 None :       lambda x: x}
+    def __init__(self):
+        self.normalize = {'stdev':     self.normalize_with_stdev,
+                          'quantiles': self.normalize_with_quantiles,
+                          'detrend':   self.normalize_with_detrend,
+                          None :       lambda x: x}
 
     def get_data_batches(self, sequence_len, sequences_per_batch, normalize=None):
         batch_len = sequence_len * sequences_per_batch
@@ -97,6 +98,7 @@ class SubjectPrototype:
 
 class Subject(SubjectPrototype):
     def __init__(self, ID=None, age=None, filename=None, scorename=None):
+        super().__init__()
         self.ID = ID
         self.age = age
         self.score = None
@@ -155,6 +157,7 @@ class Subject(SubjectPrototype):
 
 class SyntheticSubject(SubjectPrototype):
     def __init__(self, num_of_segments=100, **kwargs):
+        super().__init__()
         self._gen_signal = SyntheticECGGenerator(**kwargs)
         self._num_of_segments = num_of_segments
     def __getattr__(self, name):
