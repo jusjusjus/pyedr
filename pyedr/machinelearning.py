@@ -85,15 +85,16 @@ class NeuralNetworks:
         
     Input = namedtuple('Input', ('sequence, length'))
 
-    def __init__(self, name, default_batch=None):
+    def __init__(self, name, model_path, default_batch=None):
         """ 
         Args:
-            name (str): to generate the path (graphs/<name>)
+            name (str): to generate the path (model_path/<name>)
+            model_path (str): to generate the path (model_path/<name>)
             default_batch (list of tensors: 
                 [time, ecg, target respiration, length]):
                 if None, new placeholders are builded
         """
-        self.path = os.path.join("graphs", name)
+        self.path = os.path.join(model_path, name)
         self.default_batch = default_batch
         self._build_tensors()
         
@@ -474,7 +475,7 @@ class Batches:
         filepaths = [self._path(subject) for subject in subjects]
         print("open record:", filepaths)
         if batch_size is None:
-            batch_size = tf.placeholder_with_default(tf.constant(cls.DEFAULT_BATCH_SIZE, tf.int32), [])
+            batch_size = tf.placeholder_with_default(tf.constant(self.DEFAULT_BATCH_SIZE, tf.int32), [])
         return record_to_batch(filepaths, batch_size, shuffle=True)
     
     def evaluated(self, subjects, batch_size=_EVALUATION_BATCH_SIZE):
@@ -503,6 +504,9 @@ class Batches:
                 evaled_batch = sess.run(batch)
                 coord.request_stop()
                 coord.join(threads)
+        print("loaded evaluation from {} with {} elements"\
+            .format(filepaths, len(evaled_batch[0])))
+
         return evaled_batch
 
 
@@ -522,16 +526,12 @@ class Training:
     NUM_FINAL_STEPS = 500
     
     
-    def _get_evaluation(self, record_filenames, writer_path=None, name=None, interactive_plot=False):
+    def _get_evaluation(self, batch, writer_path=None, name=None, interactive_plot=False):
         graph = tf.get_default_graph()
         if writer_path is not None:
             writer = tf.summary.FileWriter(writer_path, graph)
         else:
             writer = None
-        
-        batch = Batches.evaluated_batch(record_filenames)    
-        print("loaded evaluation from {} with {} elements"\
-            .format(record_filenames, len(batch[0])))
         
         if interactive_plot:
             index = 0
@@ -544,7 +544,7 @@ class Training:
             plot = None
         return self.Evaluation(batch=batch, writer=writer, name=name, plot=plot)
 
-    def _evaluate(self, evaluation, sess):
+    def _evaluate(self, net, sess, evaluation):
         feed_dict = {key: value for key, value in zip(net.default_batch, evaluation.batch)}
         summary, error, prediction, target, step = sess.run(
             [net.summary, net.error, net.prediction,
@@ -559,13 +559,12 @@ class Training:
             evaluation.plot.update(prediction[index][:length].reshape(-1))
         return error
     
-    def train(self, net, evaluation_subjects, restore=None):
+    def train(self, net, evaluation_batches, restore=None):
         """ Train a given net
 
         Args:
             net (NeuralNetworks): the graph to train its variables
-            evaluation_subjects (list[list[str]]): a nested list,
-                each element is a list of subjects (str)
+            evaluation_batches (list of evaled_batch): a list of evaled batches
             restore: str or None. If not None the model (the variables)
                 were loaded from this path before training
         
@@ -576,11 +575,11 @@ class Training:
 
     
               
-        evaluations = [self._get_evaluation([subject], 
-                                           os.path.join(net.path, subject), 
-                                           subject, 
+        evaluations = [self._get_evaluation(batch, 
+                                            os.path.join(net.path, str(i)), 
+                                           "evaluation_{}".format(i), 
                                            i == 0)
-                       for i, (subject) in enumerate(evaluation_subjects)]
+                       for i, batch in enumerate(evaluation_batches)]
     
         
         with tf.Session() as sess:
@@ -603,7 +602,7 @@ class Training:
  
                 if (step % self.VALIDATION_INTERVAL) == 0:
                     for evaluation in evaluations:
-                        self._evaluate(evaluation, sess)
+                        self._evaluate(net, sess, evaluation)
 
                 if step % 200 == 0:
                     net.save_checkpoint(sess, step)
