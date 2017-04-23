@@ -7,19 +7,22 @@ from scipy.integrate import odeint
 import matplotlib as mpl
 from mpl_toolkits.mplot3d import Axes3D
 from collections import namedtuple
+from fastcache import clru_cache
+
+@clru_cache(maxsize=256)
+def sr2sqdt(sampling_rate):
+    return np.sqrt(1.0/np.float64(sampling_rate))
 
 __all__ = ['SyntheticECG']
 
-def random_walk(time):
+def random_walk(N, sampling_rate):
     """ generate random walk
     Args:
         time (array): times (must be equidistant a la np.linspace)
     Returns:
         array of len like time
     """
-
-    time_diff = time[1] - time[0]
-    return (np.sqrt(time_diff) * np.random.randn(len(time)).cumsum())
+    return np.sr2sqdt(sampling_rate) * np.random.randn(N).cumsum()
 
 
 Signal = namedtuple("Signal", ["time" , "input", "target"])
@@ -115,14 +118,14 @@ class SimpleECGGenerator(VanillaECGGenerator):
                                      self._heart_rate_std_deviation)
         return (np.random.random() +
                 self._time * frequency +
-                self._heart_fluctuations * random_walk(self._time))
+                self._heart_fluctuations * random_walk(len(self._time), self._sampling_rate))
 
     def _gen_phase_respiration(self):
         frequency = np.random.normal(self._respiration_rate,
                                      self._respiration_rate_std_deviation)
         return (np.random.random() +
                 self._time * frequency +
-                self._respiration_fluctuations * random_walk(self._time))
+                self._respiration_fluctuations * random_walk(len(self._time), self._sampling_rate))
 
     def _gen_respiration(self, phase):
         return np.sin(2 * np.pi * phase)
