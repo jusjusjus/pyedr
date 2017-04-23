@@ -25,17 +25,18 @@ def random_walk(N, sampling_rate):
     return np.sr2sqdt(sampling_rate) * np.random.randn(N).cumsum()
 
 
-Signal = namedtuple("Signal", ["time" , "input", "target"])
+Signal = namedtuple("Signal", ["time", "input", "target"])
 
 class SignalGenerator:
     """ Interface for Signal
     """
 
 
-    def __init__(self, max_time=10, sampling_rate=10):
-        self._sampling_rate = sampling_rate
+    def __init__(self, max_time=10, sampling_rate=10, seed=42):
+        self._sampling_rate = np.int64(sampling_rate)
         self._time = np.linspace(0, max_time, max_time * self._sampling_rate)
         self._max_time = max(self._time)
+        np.random.seed(seed)
 
     def __call__(self):
         """ generate the new Signal
@@ -45,10 +46,12 @@ class SignalGenerator:
     def show_single_instance(self, signal = None):
         if signal is None:
             signal = self()
-        plt.subplot(211)
+        ax = plt.subplot(211)
         plt.plot(signal.time, signal.input)
-        plt.subplot(212)
+        plt.subplot(212, sharex=ax)
         plt.plot(signal.time, signal.target)
+        plt.xlabel("Time (sec.)")
+        plt.tight_layout()
         plt.show()
 
 
@@ -86,28 +89,28 @@ class VanillaECGGenerator(SignalGenerator):
 
     def __init__(self,
                  heart_rate=60/60, respiration_rate=15/60,
-                 respiration_rate_std_deviation = 1/60,
+                 respiration_rate_stdev = 1/60,
                  respiration_fluctuations=1/60,
                  esk_strength=0.1, rsa_strength=0.5, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._heart_rate = heart_rate
         self._respiration_rate = respiration_rate
         self._respiration_fluctuations = respiration_fluctuations
-        self._respiration_rate_std_deviation = respiration_rate_std_deviation
+        self._respiration_rate_stdev = respiration_rate_stdev
         self._rsa_strength = rsa_strength
         self._esk_strength = esk_strength
 
 class SimpleECGGenerator(VanillaECGGenerator):
-    """ simgple ECG signal generator based on single peaks in ECG
+    """ Simple ECG signal generator based on single peaks in ECG
     """
     def __init__(self,
                  heart_fluctuations=0.1,
-                 heart_rate_std_deviation = 20/60,
+                 heart_rate_stdev = 20/60,
 
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._heart_fluctuations = heart_fluctuations
-        self._heart_rate_std_deviation = heart_rate_std_deviation
+        self._heart_rate_stdev = heart_rate_stdev
 
     @property
     def _time_diff(self):
@@ -115,14 +118,14 @@ class SimpleECGGenerator(VanillaECGGenerator):
 
     def _gen_phase_heartbeat(self):
         frequency = np.random.normal(self._heart_rate,
-                                     self._heart_rate_std_deviation)
+                                     self._heart_rate_stdev)
         return (np.random.random() +
                 self._time * frequency +
                 self._heart_fluctuations * random_walk(len(self._time), self._sampling_rate))
 
     def _gen_phase_respiration(self):
         frequency = np.random.normal(self._respiration_rate,
-                                     self._respiration_rate_std_deviation)
+                                     self._respiration_rate_stdev)
         return (np.random.random() +
                 self._time * frequency +
                 self._respiration_fluctuations * random_walk(len(self._time), self._sampling_rate))
@@ -138,8 +141,6 @@ class SimpleECGGenerator(VanillaECGGenerator):
         """
         phase_heartbeat[:] += (self._time_diff * self._rsa_strength *
             np.sin(2 * np.pi * phase_respiration)).cumsum()
-
-
 
     def _gen_heartbeat(self, phase):
         WIDTH = 0.06
@@ -158,6 +159,26 @@ class SimpleECGGenerator(VanillaECGGenerator):
                       target=respiration)
 
 
+
+class Respiration:
+
+    def __init__(self, ensemble_mean_period_duration, stdev_period_duration):
+        mean_period_duration = np.random.normal(ensemble_mean_period_duration, stdev_period_duration)
+        period_durations = np.random.normal( mean_period_duration, stdev_period_duration, 1000)
+        self._respiration_start_times = np.concatenate([[0], period_durations.cumsum()])
+
+    def __call__(self, time):
+        time = time  +  100
+        idx = np.searchsorted(self._respiration_start_times, time)
+        period_duration = (self._respiration_start_times[idx] -
+                           self._respiration_start_times[idx - 1])
+        phase = (time - self._respiration_start_times[idx - 1]) / period_duration
+        phase = phase % 1
+        return np.exp(-(phase - 0.5)**2 / (2 * 0.03))
+
+
+
+
 class SyntheticECGGenerator(VanillaECGGenerator):
     """ Generate synthetic ECG Signals
 
@@ -174,7 +195,7 @@ class SyntheticECGGenerator(VanillaECGGenerator):
         heart_rate: heartrate in beats per second  (default 60/60)
         respiration_rate: ensemble average of the respiration rate
             in beats per second (default 15/60)
-        respiration_rate_std_deviation: the standard deviation of the
+        respiration_rate_stdev: the standard deviation of the
             respiration rate (default 1/60) for both the ensemble fluctuations
             and the insample fluctuations
         esk_strength: ESK coupling stength, the ecg signal varies with
@@ -187,11 +208,12 @@ class SyntheticECGGenerator(VanillaECGGenerator):
 
     PeakParameter = namedtuple("Parameter", "a b theta")
     PEAK_PARAMETERS = {
-        "P": PeakParameter(a=1.2, b=.25, theta=-np.pi/3),
-        "Q": PeakParameter(a=-5.0, b=.1, theta=-np.pi/12),
-        "R": PeakParameter(a=30.0, b=.1, theta=0),
-        "S": PeakParameter(a=-7.5, b=.1, theta=np.pi/12),
-        "T": PeakParameter(a=.75, b=.4, theta=np.pi/2)}
+        "P": PeakParameter(a=1.2,  b=.25, theta=-np.pi/3),
+        "Q": PeakParameter(a=-5.0, b=.1,  theta=-np.pi/12),
+        "R": PeakParameter(a=30.0, b=.1,  theta=0),
+        "S": PeakParameter(a=-7.5, b=.1,  theta=np.pi/12),
+        "T": PeakParameter(a=.75,  b=.4,  theta=np.pi/2)
+    }
 
     A = 0.0
 
@@ -225,7 +247,9 @@ class SyntheticECGGenerator(VanillaECGGenerator):
         return [x_dot, y_dot, z_dot]
 
     def show_single_trajectory(self):
-        trajectory = self._gen_heartbeat()
+        respiration_t =  self._respiration()
+        respiration = respiration_t(self._time)
+        trajectory = self.integrate_heartbeat(respiration_t)
         fig = plt.figure()
         ax = fig.gca(projection='3d')
         theta = self._time
@@ -236,43 +260,25 @@ class SyntheticECGGenerator(VanillaECGGenerator):
         plt.show()
 
     @staticmethod
-    def _noise(signal, noise_strength):
-        signal += np.random.normal(0, noise_strength, len(signal))
+    def _noise(signal, stdev):
+        signal += np.random.normal(0, stdev, len(signal))
 
     def _respiration(self):
-
-        class Respiration:
-            def __init__(self, ensemble_mean_period_duration,
-                         std_deviation_period_duration):
-                mean_period_duration = np.random.normal(
-                    ensemble_mean_period_duration,
-                    std_deviation_period_duration)
-                period_durations = np.random.normal(
-                    mean_period_duration,
-                    std_deviation_period_duration, 1000)
-                self._respiration_start_times = np.concatenate(
-                    [[0], period_durations.cumsum()])
-
-            def __call__(self, time):
-                time = time  +  100
-                idx = np.searchsorted(self._respiration_start_times, time)
-                period_duration = (self._respiration_start_times[idx] -
-                                   self._respiration_start_times[idx - 1])
-                phase = (time - self._respiration_start_times[idx - 1]) / period_duration
-                phase = phase % 1
-                return np.exp(-(phase - 0.5)**2 / (2 * 0.03))
-
         return Respiration(1 / self._respiration_rate,
-                           self._respiration_rate_std_deviation / self._respiration_rate**2)
+                           self._respiration_rate_stdev / self._respiration_rate**2)
 
     def _coupled_via_esk(self, heartbeat, respiration):
         heartbeat[:] = heartbeat * (1 + self._esk_strength * respiration)
 
-    def _heartbeat(self, respiration):
+
+    def integrate_heartbeat(self, respiration):
         return odeint(
             self._dynamical_equation_of_motion,
             [-1, 0, 0], np.concatenate([np.linspace(-5, -0.1, 10), self._time]),
-            (respiration,))[10:, 2]
+            (respiration,))
+
+    def _heartbeat(self, respiration):
+        return self.integrate_heartbeat(respiration)[10:, 2]
 
     def __call__(self):
 
