@@ -33,7 +33,10 @@ from matplotlib import pyplot as plt, lines
 import pylab as plt
 from collections import namedtuple
 import os
-#import biosppy
+try:
+    import biosppy
+except ImportError:
+    print("failed to load biosppy, gradient building will fail")
 
 def cached_property(function):
     """ decorator that store propery after first call.
