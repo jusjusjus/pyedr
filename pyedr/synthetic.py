@@ -1,13 +1,10 @@
+
 import numpy as np
-import pylab as plt
-from os import path
-from abc import ABCMeta, abstractmethod
-from collections import namedtuple
-from scipy.integrate import odeint
-import matplotlib as mpl
-from mpl_toolkits.mplot3d import Axes3D
-from collections import namedtuple
+import matplotlib.pyplot as plt
 from fastcache import clru_cache
+from scipy.integrate import odeint
+from mpl_toolkits.mplot3d import Axes3D
+from collections import namedtuple, ChainMap
 
 @clru_cache(maxsize=256)
 def sr2sqdt(sampling_rate):
@@ -30,8 +27,6 @@ Signal = namedtuple("Signal", ["time", "input", "target"])
 class SignalGenerator:
     """ Interface for Signal
     """
-
-
     def __init__(self, max_time=10, sampling_rate=10, seed=42):
         self._sampling_rate = np.int64(sampling_rate)
         self._time = np.linspace(0, max_time, max_time * self._sampling_rate)
@@ -53,31 +48,6 @@ class SignalGenerator:
         plt.xlabel("Time (sec.)")
         plt.tight_layout()
         plt.show()
-
-
-class FindLastMax(SignalGenerator):
-    """ Generate input (random events) and target (height of last event) """
-
-    def __init__(self, mean_eventrate, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._eventrate = mean_eventrate
-
-    def __call__(self):
-        input_ = np.zeros_like(self._time)
-        target = np.zeros_like(self._time)
-        last_event_time = 0
-        while True:
-            event_time = (last_event_time +
-                          np.random.exponential(1/self._eventrate))
-            value = np.random.random()
-            idx = np.searchsorted(self._time, event_time)
-            if idx == len(self._time):
-                break
-            input_[idx] = value
-            target[idx:] = value
-            last_event_time = event_time
-
-        return Signal(time=self._time, input=input_, target=target)
 
 
 class VanillaECGGenerator(SignalGenerator):
@@ -205,6 +175,11 @@ class SyntheticECGGenerator(VanillaECGGenerator):
         respiration_noise_stength: noise added to respiration signal
             (default 0.05)
     """
+    default_params = {
+            'sampling_rate': 250,
+            'heart_noise_strength': 0.05,
+            'respiration_noise_strength': 0.05
+    }
 
     PeakParameter = namedtuple("Parameter", "a b theta")
     PEAK_PARAMETERS = {
@@ -217,14 +192,11 @@ class SyntheticECGGenerator(VanillaECGGenerator):
 
     A = 0.0
 
-    def __init__(self,
-                 sampling_rate=250,
-                 heart_noise_stength = 0.05,
-                 respiration_noise_stength = 0.05,
-                 *args, **kwargs):
-        super().__init__(sampling_rate=sampling_rate, *args, **kwargs)
-        self._heart_noise_stength = heart_noise_stength
-        self._respiration_noise_stength = respiration_noise_stength
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__dict__.update(**ChainMap(kwargs, self.default_params))
+        #self.heart_noise_stength = heart_noise_stength
+        #self.respiration_noise_stength = respiration_noise_stength
 
 
     def _dynamical_equation_of_motion(self, state, time, respiration):
@@ -275,10 +247,10 @@ class SyntheticECGGenerator(VanillaECGGenerator):
         return odeint(
             self._dynamical_equation_of_motion,
             [-1, 0, 0], np.concatenate([np.linspace(-5, -0.1, 10), self._time]),
-            (respiration,))
+            (respiration,))[10:]
 
     def _heartbeat(self, respiration):
-        return self.integrate_heartbeat(respiration)[10:, 2]
+        return self.integrate_heartbeat(respiration)[:, 2]
 
     def __call__(self):
 
@@ -286,8 +258,8 @@ class SyntheticECGGenerator(VanillaECGGenerator):
         respiration = respiration_t(self._time)
         heartbeat = 20 * self._heartbeat(respiration_t)
         self._coupled_via_esk(heartbeat, respiration)
-        self._noise(heartbeat, self._heart_noise_stength)
-        self._noise(respiration, self._respiration_noise_stength)
+        self._noise(heartbeat, self.heart_noise_stength)
+        self._noise(respiration, self.respiration_noise_stength)
         return Signal(time=self._time, input=heartbeat,
                       target=respiration)
 
