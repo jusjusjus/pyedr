@@ -178,6 +178,7 @@ class SyntheticECGGenerator(_VanillaECGGenerator):
             1 + esk_strength * respiration   (default 0.1)
         rsa_strength: strength of the respiratory sinus arrhythmia (default 0.5)
         heart_noise_stength: noise added to ecg signal (default 0.05)
+        heart_rate_fluctuations: relative heat rate fluctuations (default 0.05)
         respiration_noise_stength: noise added to respiration signal
             (default 0.05)
         esk_spot_width (None or float): if None then the esk acts uniform if float
@@ -197,12 +198,13 @@ class SyntheticECGGenerator(_VanillaECGGenerator):
         "T": PeakParameter(a=.75, b=.4, theta=np.pi/2)}
 
     A = 0.0
-    ESK_SPOT_WIDTH_QRS = 0.15
-    RSA_SPOT_WIDTH_QRS = 0.25
+    ESK_SPOT_WIDTH_QRS = 2 * np.pi / 12
+    RSA_SPOT_WIDTH_QRS = 2 * np.pi / 3
  
     def __init__(self,
                  sampling_rate=250,
                  heart_noise_stength = 0.05,
+                 heart_rate_fluctuations = 0.05,
                  respiration_noise_stength = 0.05,
                  esk_spot_width=None,
                  rsa_spot_width=None,
@@ -212,20 +214,33 @@ class SyntheticECGGenerator(_VanillaECGGenerator):
         self._respiration_noise_stength = respiration_noise_stength
         self._esk_spot_width = esk_spot_width
         self._rsa_spot_width = rsa_spot_width
+        self._heart_rate_fluctuations = heart_rate_fluctuations
+    def _random_process(self, coefficients, time):
+        #TODO(dv): ideally this should be a Ornstein-Uhlenbeck process, 
+        #          how is its spectral decomposition?
+        return sum(c * np.sin((k + 1) * np.pi * time / self._max_time / 2) / (k + 1) 
+                   for k, c in enumerate(coefficients)) / np.pi
 
-    def _dynamical_equation_of_motion(self, state, time, respiration):
+
+    def _dynamical_equation_of_motion(self, state, time, respiration,
+                                      random_coefficients):
         x, y, z = state
 
         alpha = 1 - np.sqrt(x**2 + y**2)
         theta = np.arctan2(y, x)
         r = respiration(time)
         omega_heart_mean = 2 * np.pi * self._heart_rate
+        omega_heart = omega_heart_mean * (1 + 
+            self._heart_rate_fluctuations * self._random_process(
+                random_coefficients, time))
+        omega_heart = max(omega_heart, 0)
         if self._rsa_spot_width is None:
-            omega_heart = omega_heart_mean * (1 + self._rsa_strength * r)
+            omega_heart = omega_heart * (1 + self._rsa_strength * r)
         else:
-            omega_heart = (omega_heart_mean * 
-             (1 + (1 - np.exp(-(x - 1)**2 / self._rsa_spot_width**2)) *  
+            omega_heart = (omega_heart * 
+             (1 + (1 - np.exp(- theta**2 / self._rsa_spot_width**2)) *  
                    self._rsa_strength * r))
+        
         x_dot = alpha * x - omega_heart * y
         y_dot = alpha * y + omega_heart * x
 
@@ -246,7 +261,9 @@ class SyntheticECGGenerator(_VanillaECGGenerator):
         x = trajectory[:, 0]
         y = trajectory[:, 1]
         z = trajectory[:, 2]
-        z2 = np.exp(-(x - 1)**2 / self._esk_spot_width**2)
+        theta = np.arctan2(y, x)
+        z2 = np.exp(- theta**2 / self._esk_spot_width**2)
+        
         ax.plot(x, y, z)
         ax.plot(x, y, z2 / 10)
         plt.show()
@@ -287,17 +304,17 @@ class SyntheticECGGenerator(_VanillaECGGenerator):
             heartbeat[:] = heartbeat * (1 + self._esk_strength * respiration)
         else:
             x = heartbeat_trajectory[:, 0]
-            heartbeat[:] *= (1 + np.exp(-(x - 1)**2 / self._esk_spot_width**2) * 
+            y = heartbeat_trajectory[:, 1]
+            theta = np.arctan2(y, x)
+            heartbeat[:] *= (1 + np.exp(- theta**2 / self._esk_spot_width**2) * 
                                  self._esk_strength * respiration)
 
-    #def _heartbeat(self, respiration):
-    #    return self._heartbeat_trajectory(respiration)[:, 2]
-
     def _heartbeat_trajectory(self, respiration):
+        random_coefficients = np.random.normal(size=30)
         trajectory = odeint(
             self._dynamical_equation_of_motion,
             [-1, 0, 0], np.concatenate([np.linspace(-5, -0.1, 10), self._time]),
-            (respiration,))[10:]
+            (respiration, random_coefficients))[10:]
         trajectory[:, 2] *= 20
         return trajectory
 
