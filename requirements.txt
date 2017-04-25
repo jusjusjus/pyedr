@@ -1,0 +1,9 @@
+# Run with pip install -r requirements.txt
+# Packages on pip
+numpy>=1.12.0
+scipy
+biosppy
+namedlist
+
+# Packages on github
+# pyedf install from github.com/jusjusjus/pyedf.git

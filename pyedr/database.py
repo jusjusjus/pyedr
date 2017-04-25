@@ -6,6 +6,9 @@ import logging
 import numpy as np
 from scipy.signal import detrend
 from .synthetic import SyntheticECGGenerator
+
+
+
 """Twenty young (21 - 34 years old) and twenty elderly (68 - 85 years old)
 rigorously-screened healthy subjects underwent 120 minutes of continuous supine
 resting while continuous electrocardiographic (ECG), and respiration signals
@@ -29,11 +32,12 @@ include a blood pressure waveform, as noted above."""
 
 
 class SubjectPrototype:
+
     @staticmethod
     def normalize_with_detrend(x):
         return detrend(x)
 
-    quantiles = [0.1, 0.5, 0.9]
+    quantiles = [0.2, 0.5, 0.8]
     @staticmethod
     def normalize_with_quantiles(x):
         x = detrend(x)
@@ -48,10 +52,12 @@ class SubjectPrototype:
         return (x-np.mean(x))/np.std(x)
 
     def __init__(self):
-        self.normalize = {'stdev':     self.normalize_with_stdev,
-                          'quantiles': self.normalize_with_quantiles,
-                          'detrend':   self.normalize_with_detrend,
-                          None :       lambda x: x}
+        self.normalize = {
+            'stdev':     self.normalize_with_stdev,
+            'quantiles': self.normalize_with_quantiles,
+            'detrend':   self.normalize_with_detrend,
+            None :       lambda x: x
+        }
 
     def get_data_batches(self, sequence_len, sequences_per_batch, normalize=None):
         batch_len = sequence_len * sequences_per_batch
@@ -156,12 +162,13 @@ class Subject(SubjectPrototype):
 
 
 class SyntheticSubject(SubjectPrototype):
+
     def __init__(self, num_of_segments=100, **kwargs):
         super().__init__()
-        self._gen_signal = SyntheticECGGenerator(**kwargs)
-        self._num_of_segments = num_of_segments
+        self.gen_signal = SyntheticECGGenerator(**kwargs)
+        self.num_of_segments = num_of_segments
+
     def __getattr__(self, name):
-        print("ignoring {}".format(name))
         return lambda *args, **kwargs: None
 
     def get_data(self, normalize=None):
@@ -170,10 +177,8 @@ class SyntheticSubject(SubjectPrototype):
             data[state][channel, sample]
         """
         data = []
-        for i in range(self._num_of_segments):
-            print("generate synthetic ecg/respiration: {:3} / {:3}"\
-                .format(i, self._num_of_segments), end="\r", flush=True)
-            _, ekg, resp = self._gen_signal()
+        for i in range(self.num_of_segments):
+            ekg, resp = self.gen_signal()
             ekg  = self.normalize[normalize](ekg)
             resp = self.normalize[normalize](resp)
             data.append(np.array([ekg, resp]))
@@ -191,20 +196,25 @@ class Dataset:
     logger = logging.getLogger(name='Dataset')
 
     def __init__(self, subject_ids=None, **kwargs):
-        if subject_ids is "synthetic":
-            self.subjects = [SyntheticSubject(sampling_rate=250,
-                                              max_time=10, **kwargs)]
-        else:
-            self.add_subjects(subject_ids)
+        if subject_ids is None:
+            subject_ids = []
+        self.add_subjects(subject_ids, **kwargs)
 
-    def add_subjects(self, subject_ids):
-        self.subjects = []
-        for ID in subject_ids:
+    def id_to_subject(self, ID, **kwargs):
+        if 'synthetic' in ID:
+            subject = SyntheticSubject(**kwargs)
+        else:
             age = 'y' if 'y' in ID else 'o'
             self.logger.debug('Adding subject "{}"'.format(ID))
             filename  = os.path.join(self.DATAPATH, ID+'.edf')
             scorename = os.path.join(self.ANOTPATH, ID+'_segments.csv')
             subject   = Subject(ID=ID, age=age, filename=filename, scorename=scorename)
+        return subject
+
+    def add_subjects(self, subject_ids, **kwargs):
+        self.subjects = []
+        for ID in subject_ids:
+            subject = self.id_to_subject(ID, **kwargs)
             self.subjects.append(subject)
 
     def get_data(self, normalize=None):
