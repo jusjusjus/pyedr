@@ -70,63 +70,6 @@ class VanillaECGGenerator(SignalGenerator):
         self._rsa_strength = rsa_strength
         self._esk_strength = esk_strength
 
-class SimpleECGGenerator(VanillaECGGenerator):
-    """ Simple ECG signal generator based on single peaks in ECG
-    """
-    def __init__(self,
-                 heart_fluctuations=0.1,
-                 heart_rate_stdev = 20/60,
-
-                 *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._heart_fluctuations = heart_fluctuations
-        self._heart_rate_stdev = heart_rate_stdev
-
-    @property
-    def _time_diff(self):
-        return 1 / self._sampling_rate
-
-    def _gen_phase_heartbeat(self):
-        frequency = np.random.normal(self._heart_rate,
-                                     self._heart_rate_stdev)
-        return (np.random.random() +
-                self._time * frequency +
-                self._heart_fluctuations * random_walk(len(self._time), self._sampling_rate))
-
-    def _gen_phase_respiration(self):
-        frequency = np.random.normal(self._respiration_rate,
-                                     self._respiration_rate_stdev)
-        return (np.random.random() +
-                self._time * frequency +
-                self._respiration_fluctuations * random_walk(len(self._time), self._sampling_rate))
-
-    def _gen_respiration(self, phase):
-        return np.sin(2 * np.pi * phase)
-
-    def _coupled_via_esk(self, heartbeat, respiration):
-        return heartbeat * (1 + self._esk_strength * respiration)
-
-    def _couple_via_rsa(self, phase_heartbeat, phase_respiration):
-        """ including respiratory sinus arrhythmia
-        """
-        phase_heartbeat[:] += (self._time_diff * self._rsa_strength *
-            np.sin(2 * np.pi * phase_respiration)).cumsum()
-
-    def _gen_heartbeat(self, phase):
-        WIDTH = 0.06
-        theta = phase % 1
-        delta_theta = theta - 0.5
-        return np.exp(-delta_theta**2 / (2 * WIDTH))
-
-    def __call__(self):
-        phase_respiration = self._gen_phase_respiration()
-        phase_heartbeat = self._gen_phase_heartbeat()
-        self._couple_via_rsa(phase_heartbeat, phase_respiration)
-        heartbeat = self._gen_heartbeat(phase_heartbeat)
-        respiration = self._gen_respiration(phase_respiration)
-        heartbeat_signal = self._coupled_via_esk(heartbeat, respiration)
-        return Signal(time=self._time, input=heartbeat_signal,
-                      target=respiration)
 
 
 class Respiration:
@@ -144,7 +87,6 @@ class Respiration:
         phase = (time - self._respiration_start_times[idx - 1]) / period_duration
         phase = phase % 1
         return np.exp(-(phase - 0.5)**2 / (2 * 0.03))
-
 
 
 
@@ -181,20 +123,20 @@ class SyntheticECGGenerator(VanillaECGGenerator):
             with the given width (see also show_single_trajectory)
     """
     default_params = {
-            'sampling_rate': 250,
-            'heart_noise_strength': 0.05,
-            'respiration_noise_strength': 0.05,
-            'esk_spot_width': 0.15,
-            'rsa_spot_width': 0.25
+        'sampling_rate': 250,
+        'heart_noise_strength': 0.05,
+        'respiration_noise_strength': 0.05,
+        'esk_spot_width': 0.15,
+        'rsa_spot_width': 0.25
     }
 
-    PeakParameter = namedtuple("Parameter", "a b theta")
-    PEAK_PARAMETERS = {
-        "P": PeakParameter(a=1.2,  b=.25, theta=-np.pi/3),
-        "Q": PeakParameter(a=-5.0, b=.1,  theta=-np.pi/12),
-        "R": PeakParameter(a=30.0, b=.1,  theta=0),
-        "S": PeakParameter(a=-7.5, b=.1,  theta=np.pi/12),
-        "T": PeakParameter(a=.75,  b=.4,  theta=np.pi/2)
+    WaveParameter = namedtuple("Parameter", "a b theta")
+    WAVE_PARAMETERS = {
+        "P": WaveParameter(a=1.2,  b=.25, theta=-np.pi/3),
+        "Q": WaveParameter(a=-5.0, b=.1,  theta=-np.pi/12),
+        "R": WaveParameter(a=30.0, b=.1,  theta=0),
+        "S": WaveParameter(a=-7.5, b=.1,  theta=np.pi/12),
+        "T": WaveParameter(a=.75,  b=.4,  theta=np.pi/2)
     }
 
     A = 0.0
@@ -220,14 +162,14 @@ class SyntheticECGGenerator(VanillaECGGenerator):
         y_dot = alpha * y + omega_heart * x
 
         z_dot = -z + self.A * r
-        for a_i, b_i, theta_i in self.PEAK_PARAMETERS.values():
+        for a_i, b_i, theta_i in self.WAVE_PARAMETERS.values():
             delta_theta = (theta - theta_i + np.pi) % (2 * np.pi) - np.pi
             z_dot += -(omega_heart / omega_heart_mean * a_i * delta_theta *
                        np.exp(-delta_theta**2 / (2 * b_i**2)))
 
         return [x_dot, y_dot, z_dot]
 
-    def show_single_trajectory(self):
+    def show_single_trajectory(self, show=False):
         null_resp = lambda x: np.zeros_like(x)
         trajectory = self._heartbeat_trajectory(respiration=null_resp)
         fig = plt.figure()
@@ -239,7 +181,7 @@ class SyntheticECGGenerator(VanillaECGGenerator):
         z2 = np.exp(-(x - 1)**2 / self.esk_spot_width**2)
         ax.plot(x, y, z)
         ax.plot(x, y, z2 / 10)
-        plt.show()
+        if show: plt.show()
 
     @staticmethod
     def _noise(signal, stdev):
@@ -270,7 +212,6 @@ class SyntheticECGGenerator(VanillaECGGenerator):
         return trajectory
 
     def __call__(self):
-
         respiration_t =  self._respiration()
         respiration = respiration_t(self._time)
         heartbeat_trajectory = self._heartbeat_trajectory(respiration_t)
