@@ -24,5 +24,5 @@ def get_data():
 ekg, resp = get_data()
 ekg = Ekg(ekg, fs)
 resp = Resp(resp, fs)
-c = Coupling(ekg, resp, fs)
+c = Coupling(ekg, resp)
 c.plot()
