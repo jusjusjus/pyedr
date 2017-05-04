@@ -48,7 +48,5 @@ class Resp:
         self._phase = [
                 self.get_phase(x)
                 for x in self.segments
-                ]
+            ]
         self.phase_computed = True
-
-

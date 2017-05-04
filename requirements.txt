@@ -4,6 +4,7 @@ numpy>=1.12.0
 scipy
 biosppy
 namedlist
+fastcache>=1.0.1
 
 # Packages on github
 # pyedf install from github.com/jusjusjus/pyedf.git
