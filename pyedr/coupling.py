@@ -49,7 +49,7 @@ class Coupling:
         self.snr_rri = abs(self.p_rri[1])/self.res_rri
         self.snr_rph = abs(self.p_rph[1])/self.res_rph
 
-    def plot(self):
+    def plot(self, filename=None):
         import matplotlib.pyplot as plt
         ph = np.arange(0, pi2, 0.1)
         ax = plt.subplot(211)
@@ -63,6 +63,8 @@ class Coupling:
         plt.plot(self.phi_j, self.rph, 'ko')
         plt.ylabel("R-Peak Height (mV)")
         plt.xlim(0, pi2)
+        if filename is not None:
+            plt.savefig(filename)
         plt.show()
 
     @staticmethod

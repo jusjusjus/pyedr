@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 
 import pyedr
 from pyedr.ekg import Ekg
