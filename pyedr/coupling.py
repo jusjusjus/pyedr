@@ -51,18 +51,29 @@ class Coupling:
 
     def plot(self, filename=None):
         import matplotlib.pyplot as plt
-        ph = np.arange(0, pi2, 0.1)
+        import phd
+        ph = np.linspace(0, pi2, 25)
+
+        plt.figure(figsize=(10, 10))
         ax = plt.subplot(211)
-        plt.title("RSA-Coupling:  SNR={:.3g}".format(self.snr_rri))
-        plt.plot(ph, self.sinfunc(ph, self.p_rri))
+        plt.title("RSA-Coupling:  SNR={:.3g}".format(self.snr_rri), fontsize=13)
+        plt.ylabel("R-R Intervals (sec.)", fontsize=15)
         plt.plot(self.phi_j, self.rri, 'ko')
-        plt.ylabel("R-R Intervals (sec.)")
+        plt.plot(ph, self.sinfunc(ph, self.p_rri), 'r--', lw=2.)
+        phd.matplotlib.xticks(fontsize=15)
+        plt.yticks(fontsize=13)
+        plt.grid()
+
         plt.subplot(212, sharex=ax)
-        plt.title("ESK-Coupling:  SNR={:.3g}".format(self.snr_rph))
-        plt.plot(ph, self.sinfunc(ph, self.p_rph))
+        plt.title("ESK-Coupling:  SNR={:.3g}".format(self.snr_rph), fontsize=13)
+        plt.ylabel("R-Peak Height (mV)", fontsize=15)
         plt.plot(self.phi_j, self.rph, 'ko')
-        plt.ylabel("R-Peak Height (mV)")
-        plt.xlim(0, pi2)
+        plt.plot(ph, self.sinfunc(ph, self.p_rph), 'r--', lw=2.)
+        phd.matplotlib.xticks(fontsize=15)
+        plt.yticks(fontsize=13)
+        plt.grid()
+
+        plt.tight_layout()
         if filename is not None:
             plt.savefig(filename)
         plt.show()
