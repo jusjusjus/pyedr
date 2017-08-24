@@ -22,21 +22,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-
 import tensorflow as tf
 from tensorflow.contrib.rnn import LSTMCell
 from tensorflow.python.training import coordinator
 from tensorflow.python.training import queue_runner
+
 import numpy as np
 from matplotlib import pyplot as plt, lines
-
-import pylab as plt
 from collections import namedtuple
+
+import warnings
 import os
 try:
     import biosppy
 except ImportError:
-    print("failed to load biosppy, gradient building will fail")
+    warnings.warn("Failed to load biosppy required for gradient calculation",
+                  ImportWarning)
+
 
 def cached_property(function):
     """ decorator that store propery after first call.
@@ -80,15 +82,16 @@ class NeuralNetworks:
         learning_rate (tensor[]): placeholder for the learning rate            
     """
 
-    LSTM_SIZES = [15, 15]
-    MAX_SEQUENCE_LEN = None  # allow dynamically choosen batch size
+
+    MAX_SEQUENCE_LEN = None  # allow dynamically choosen sequence length
     BATCH_SIZE = None  # allow dynamically choosen batch size
     NUM_FEATURES = 1
     NUM_TARGETS = 1
         
-    Input = namedtuple('Input', ('sequence, length'))
+    Input = namedtuple('Input', ('sequence', 'length'))
 
-    def __init__(self, name, model_path, default_batch=None):
+    def __init__(self, name=None, model_save_path=None, 
+                 default_batch=None, lstm_sizes=[15, 15]):
         """ 
         Args:
             name (str): to generate the path (model_path/<name>)
@@ -97,10 +100,33 @@ class NeuralNetworks:
                 [time, ecg, target respiration, length]):
                 if None, new placeholders are builded
         """
-        self.path = os.path.join(model_path, name)
+        if name is not None and model_save_path is not None:
+            self.path = os.path.join(model_save_path, name)
+        else:
+            self.path = None
         self.default_batch = default_batch
+        self._lstm_sizes = lstm_sizes
+
         self._build_tensors()
+
+    @classmethod
+    def from_meta_graph(cls, model_path):
+        saver = tf.train.import_meta_graph(model_files + ".meta")
+        graph = tf.get_default_graph()
         
+        class ImportedNeuralNetworks:
+            pass
+
+        net = ImportedNeuralNetworks()
+        net.input = self.Input(
+            sequence=graph.get_tensor_by_name("input_sequence:0"),
+            length=graph.get_tensor_by_name("input_seq_length:0"))
+        net.target = graph.get_tensor_by_name("target:0")
+        net.prediction = graph.get_tensor_by_name("prediction:0")
+        net.loss = graph.get_tensor_by_name("loss:0")
+        net.prediction = cls.prediction
+        return net
+
     def _build_tensors(self):
         self.prediction
         self.target
@@ -171,7 +197,7 @@ class NeuralNetworks:
         """ BLSTM logits build from the input
         """
         lstm_layer_input = self.input.sequence
-        for n_layer, num_hidden_neurons in enumerate(self.LSTM_SIZES):
+        for n_layer, num_hidden_neurons in enumerate(self._lstm_sizes):
             lstm_cell_fw = LSTMCell(
                 num_hidden_neurons, state_is_tuple=True)
             lstm_cell_bw = LSTMCell(
@@ -193,22 +219,15 @@ class NeuralNetworks:
         b = tf.Variable(tf.constant(0.1, shape=[self.NUM_TARGETS]))
         output = tf.matmul(output, W) + b
         batch_size = tf.shape(self.input.sequence)[0]
-        output = tf.reshape(output, [batch_size, -1, self.NUM_TARGETS])
+        output = tf.reshape(output, [batch_size, -1, self.NUM_TARGETS],
+                            name="prediction")
         return output
     
-    @cached_property
-    def _loss_old(self):
-        """ does not regard that ends are only padded
-        """
-        loss = tf.reduce_mean((self.prediction - self.target)**2)
-        tf.summary.scalar('loss', loss)
-        return loss
-
     @cached_property
     def loss(self):
         """ lost/cost function of the batch
         """
-        loss = tf.reduce_mean(self.loss_per_example)
+        loss = tf.reduce_mean(self.loss_per_example, name="loss")
         tf.summary.scalar('loss', loss)
         return loss
     
@@ -224,7 +243,7 @@ class NeuralNetworks:
         total_loss = tf.reduce_sum(
             mask * (self.prediction - self.target)**2,
             reduction_indices=[1, 2])
-        loss = total_loss / tf.to_float(self.input.length)
+        loss = (total_loss / tf.to_float(self.input.length))**0.5
         return loss
     
     @cached_property
@@ -251,7 +270,7 @@ class NeuralNetworks:
     
     @cached_property
     def global_step(self):
-        """ counting the passed number of optimization steps
+        """ total number of optimization steps
         """
         return tf.Variable(0, name='global_step', trainable=False)
 
@@ -265,11 +284,14 @@ class NeuralNetworks:
        
     def save_checkpoint(self, sess, global_step=None):
         name = "model.ckpt"
-        path = os.path.join(self.path, name)
+        try:
+            path = os.path.join(self.path, name)
+        except TypeError:
+            raise ValueError("provide name and savepath in NeuralNetwork(...) to be able to save")
         self._saver.save(
             sess, path, global_step=global_step)
         print("variables have been saved")
-                
+
     def restore(self, sess, path):
         """ restore the model (but not the graph from meta) in a given session
         
@@ -298,6 +320,34 @@ class NeuralNetworks:
                 for i in time_indices]
 
 
+class ImportedNeuralNetworks(NeuralNetworks):
+    input = None
+    target = None
+    prediction = None
+    loss = None
+
+    def __init__(self, model_path):
+        saver = tf.train.import_meta_graph(model_path + ".meta")
+        graph = tf.get_default_graph()
+
+        #if name is not None and model_path is not None:
+        #    self.path = os.path.join(model_path, name)
+        #else:
+        self.path = None
+        
+        self.input = self.Input(
+            sequence=graph.get_tensor_by_name("input_sequence:0"),
+            length=graph.get_tensor_by_name("input_seq_length:0"))
+        self.target = graph.get_tensor_by_name("target:0")
+        self.prediction = graph.get_tensor_by_name("prediction:0")
+        self.loss = graph.get_tensor_by_name("loss:0")
+        self.op
+        self.error
+        self.train_step
+        self.global_step
+
+
+   
     
 def record_to_batch(
     filenames, batch_size, shuffle=False,
@@ -436,10 +486,10 @@ class Batches:
     """
     SUBJECTS_TRAIN = ['f1o04', 'f1o05', 'f1o06', 'f1o07', 'f1o08', 'f1o09', 'f1o10',  'f1y04', 'f1y05', 'f1y06', 'f1y07', 'f1y08', 'f1y09', 'f1y10',  'f2o04', 'f2o05', 'f2o06', 'f2o07', 'f2o08', 'f2o09', 'f2o10',  'f2y04', 'f2y05', 'f2y06', 'f2y07', 'f2y08', 'f2y09', 'f2y10']
     SUBJECTS_TEST = ['f1o01', 'f1o02', 'f1o03',  'f1y01', 'f1y02', 'f1y03','f2o01', 'f2o02', 'f2o03', 'f2y01', 'f2y02', 'f2y03']
-    SUBJECTS_UNSEGMENTED_TRAIN = ['{}_train'.format(subject) for subject in SUBJECTS_TRAIN] #train means first hour
-    SUBJECTS_UNSEGMENTED_TEST = ['{}_train'.format(subject) for subject in SUBJECTS_TEST]#train means first hour
-    SUBJECTS_UNSEGMENTED_TRAIN_SIGNLE = 'f1o01_train'
-    SUBJECTS_UNSEGMENTED_TEST_SIGNLE = 'f1o01_test'
+    SUBJECTS_UNSEGMENTED_TRAIN = ['{}_all_train'.format(subject) for subject in SUBJECTS_TRAIN] #train means first hour
+    SUBJECTS_UNSEGMENTED_TEST = ['{}_all_train'.format(subject) for subject in SUBJECTS_TEST] #train means first hour
+    SUBJECTS_UNSEGMENTED_TRAIN_SIGNLE = 'f1o01_all_train'
+    SUBJECTS_UNSEGMENTED_TEST_SIGNLE = 'f1o01_all_test'
     _EVALUATION_BATCH_SIZE = 10000  # 
     DEFAULT_BATCH_SIZE = 64
 
@@ -448,10 +498,7 @@ class Batches:
         self._data_path = data_path
     
     def _filename(self, subject):
-        if subject in self.SUBJECTS_TRAIN or subject in self.SUBJECTS_TEST:
-            return "{}_preprocessed.tfrecords".format(subject)
-        else:
-            return "{}.tfrecords".format(subject)
+        return "{}.tfrecords".format(subject)
 
     def _path(self, subject):
         filename = self._filename(subject)
@@ -521,22 +568,26 @@ class Training:
     learing shedule.
     """
     Evaluation = namedtuple("Evaluation", ["batch", "writer", "name", "plot"])
-    VALIDATION_INTERVAL = 5
+    
         
-    LEARNING_RATE_DEFAULT = 0.003
-    NUM_STEPS = 2000
-    LEARNING_RATE_FINAL = 0.0003
-    NUM_FINAL_STEPS = 500
     
-    
-    def _get_evaluation(self, batch, writer_path=None, name=None, interactive_plot=False):
+    def __init__(self, num_steps=2000, learning_rate_default=0.003, 
+                 learning_rate_final=0.0003, num_final_steps=500,
+                 validation_interval=5, show_evaluation=False):
+        self.LEARNING_RATE_DEFAULT = learning_rate_default
+        self.NUM_STEPS = num_steps
+        self.LEARNING_RATE_FINAL = learning_rate_final
+        self.NUM_FINAL_STEPS = num_final_steps
+        self.VALIDATION_INTERVAL = validation_interval
+        self._is_interactive_plot = show_evaluation
+    def _get_evaluation(self, batch, writer_path=None, name=None, show=False):
         graph = tf.get_default_graph()
         if writer_path is not None:
             writer = tf.summary.FileWriter(writer_path, graph)
         else:
             writer = None
         
-        if interactive_plot:
+        if self._is_interactive_plot and show:
             index = 0
             length = batch[3][index]
             plot = Plot(batch[0][index][:length], 
@@ -580,8 +631,8 @@ class Training:
               
         evaluations = [self._get_evaluation(batch, 
                                             os.path.join(net.path, str(i)), 
-                                           "evaluation_{}".format(i), 
-                                           i == 0)
+                                            "evaluation_{}".format(i), 
+                                            (i == 0))
                        for i, batch in enumerate(evaluation_batches)]
     
         
@@ -611,7 +662,7 @@ class Training:
                     net.save_checkpoint(sess, step)
 
 
-def detect_rpeaks_indices(ecg):
+def detect_rpeaks_indices(ecg, sampling_rate, rate_zoom_factor=4):
     """ Return the times of the R-peaks in a ECG signal
 
     Args:
@@ -620,9 +671,12 @@ def detect_rpeaks_indices(ecg):
          list(float): the times od the R-peaks
     """       
     ecg = np.squeeze(ecg)
-    ecg_extended = np.column_stack(4 * [ecg]).reshape(-1)
-    out = biosppy.ecg.ecg(signal=ecg_extended, sampling_rate=100., show=False)
-    return out["rpeaks"]/4
+    ecg_extended = np.column_stack(rate_zoom_factor * [ecg]).reshape(-1)
+    out = biosppy.ecg.ecg(signal=ecg_extended, 
+                          sampling_rate=rate_zoom_factor * sampling_rate,
+                          show=False)
+    return out["rpeaks"]/rate_zoom_factor
+
 
 HALF_WINDOW = 100
 def find_window_around_closest_rpeak(signal, time_indices, ecgs, lengths, times):
@@ -630,9 +684,11 @@ def find_window_around_closest_rpeak(signal, time_indices, ecgs, lengths, times)
 
 
     """
+    #from .resp import Resp
+    #respiration = Resp(respiration, sampling_rate)
     for time_idx, signal_t in zip(time_indices, signal):
         for ecg, gradients_example, length, time in zip(ecgs, signal_t, lengths, times):
-            rpeaks = detect_rpeaks_indices(ecg)
+            rpeaks = detect_rpeaks_indices(ecg, 25)
             peak_idx = int(round(rpeaks[np.argmin(abs(rpeaks - time_idx))]))
             if HALF_WINDOW < peak_idx < length - HALF_WINDOW:
                 window = slice(peak_idx-HALF_WINDOW, peak_idx+HALF_WINDOW)
@@ -643,7 +699,7 @@ def find_window_around_closest_rpeak(signal, time_indices, ecgs, lengths, times)
 class Inference:
     """ Infer the learned knowlege of a given net.
 
-    Attributed (cached properties which were calculated only on demand):
+    Attributed (cached properties which are only calculated on demand):
         ranked_example (int[BATCHSIZE]): example indices sorted by there error
         default_idx (int): indice of the example with median error
         gradient (float[TIME_STEPS, BATCH_SIZE, max_sequence_length]):
@@ -738,12 +794,18 @@ class Inference:
         mean_ecg = np.zeros(2 * HALF_WINDOW)
         correlation = np.zeros(2 * HALF_WINDOW)
         slope_correlation = np.zeros(2 * HALF_WINDOW)  # correlation between slope and gradient
-        
+        i=0
         for single_gradient, single_ecg, _ in find_window_around_closest_rpeak(self.gradients, self._time_indices, self.ecg, self.length, self.time):
             mean_gradient += single_gradient
             correlation += np.squeeze(single_ecg) * single_gradient
             slope_correlation += np.gradient(np.squeeze(single_ecg)) * single_gradient
             mean_ecg += np.squeeze(single_ecg)
+            i += 1
+        mean_ecg = mean_ecg / i
+        mean_gradient = mean_gradient / i
+        correlation = correlation / i
+        slope_correlation = slope_correlation / i
+        mea
         return [mean_ecg, mean_gradient, correlation, slope_correlation]
 
     def plot_mean_gradient(self, save=False):
@@ -786,10 +848,36 @@ def plot(time, ecg, respiration, prediction=None, gradient=None, title=None):
         ax.plot(time, gradient, label="gradient")
     plt.legend()
     plt.subplot(212, sharex=ax)
-    #plt.cla()
-    plt.plot(time, respiration, label="target resp")
+    plt.plot(time, respiration, 
+             label="resp" if prediction is None else "target resp")
     if prediction is not None:
         plt.plot(time, prediction, label="predicted resp")
     plt.legend()
 
 
+def main(data_path="/scratch/dv/ekg/tfrecords",
+         model_path="/data/ekg/tfmodels/",
+         model_name="unsegmented_large"):
+    
+    batches = Batches(data_path)
+    #train_subject = model.Batches.SUBJECTS_UNSEGMENTED_TRAIN
+    train_subject = [subject + "_all_train" for subject in batches.SUBJECTS_TRAIN]
+    train_subject += [subject + "_all_test" for subject in batches.SUBJECTS_TRAIN]
+    #train_subject = [batches.synthetic_subject(esk=esk,rsa=rsa,type_="train")
+    #                  for esk in [0, 0.03, 0.1]
+    #                  for rsa in [0, 0.3, 1.]]
+    #test_subject = batches.synthetic_subject(esk=0.03,rsa=0.3,type_="test")
+    test_subject = batches.SUBJECTS_TEST[0] + "_all_train"
+    test_batch = batches.evaluated(test_subject)
+    batch = batches.symbolic(train_subject)
+    net = NeuralNetworks(
+        default_batch=batch,
+        lstm_sizes=[25, 25],
+        model_path=model_path,
+        name=model_name)
+
+    training = Training(num_steps=4000)
+    training.train(net, [test_batch])
+
+if __name__ == "__main__":
+    main()
