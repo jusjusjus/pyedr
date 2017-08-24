@@ -1,7 +1,11 @@
 #! /usr/bin/python
 
 import os
-import pyedf
+import warnings
+try:
+    import pyedf
+except ImportError:
+    warnings.warn("failed ot load pyedf", Warning)
 import logging
 import numpy as np
 from scipy.signal import detrend
