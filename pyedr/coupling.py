@@ -51,7 +51,7 @@ class Coupling:
 
     def plot(self, filename=None):
         import matplotlib.pyplot as plt
-        import phd
+        #import phd
         ph = np.linspace(0, pi2, 25)
 
         plt.figure(figsize=(10, 10))
@@ -60,7 +60,7 @@ class Coupling:
         plt.ylabel("R-R Intervals (sec.)", fontsize=15)
         plt.plot(self.phi_j, self.rri, 'ko')
         plt.plot(ph, self.sinfunc(ph, self.p_rri), 'r--', lw=2.)
-        phd.matplotlib.xticks(fontsize=15)
+        #phd.matplotlib.xticks(fontsize=15)
         plt.yticks(fontsize=13)
         plt.grid()
 
@@ -69,7 +69,7 @@ class Coupling:
         plt.ylabel("R-Peak Height (mV)", fontsize=15)
         plt.plot(self.phi_j, self.rph, 'ko')
         plt.plot(ph, self.sinfunc(ph, self.p_rph), 'r--', lw=2.)
-        phd.matplotlib.xticks(fontsize=15)
+        #phd.matplotlib.xticks(fontsize=15)
         plt.yticks(fontsize=13)
         plt.grid()
 
